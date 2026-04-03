@@ -17,19 +17,31 @@ def get_speed_classification(speed, first_cosmic, second_cosmic):
     Классификация траектории по текущей скорости относительно 1-й и 2-й космических
     """
     if speed < first_cosmic:
-        return "Скорость меньше 1-й космической: падение/суборбитальная траектория."
+        return "Скорость меньше 1-й космической: спутник не выходит на орбиту и падает обратно на Землю."
     if speed < second_cosmic:
-        return "Скорость от 1-й до 2-й космической: замкнутая орбита вокруг Земли (эллиптическая)."
-    return "Скорость больше или равна 2-й космической: незамкнутая траектория ухода (параболическая/гиперболическая)."
+        return "Скорость от 1-й до 2-й космической: спутник остается на орбите вокруг Земли."
+    return "Скорость больше или равна 2-й космической: спутник покидает орбиту Земли."
+
+
+def get_flight_direction(x_dot, y_dot, z_dot):
+    """
+    Направление полета по вектору скорости
+    """
+    speed = np.sqrt(x_dot ** 2 + y_dot ** 2 + z_dot ** 2)
+    if speed == 0:
+        return "Направление не определено (нулевая скорость)."
+
+    dir_x, dir_y, dir_z = x_dot / speed, y_dot / speed, z_dot / speed
+    return f"Направление полета (единичный вектор): ({dir_x:.4f}, {dir_y:.4f}, {dir_z:.4f})"
 
 
 def get_velocity_with_user_speed(x_dot, y_dot, z_dot):
     """
-    Интерфейс ввода скорости: пользователь может задать новый модуль скорости
+    Интерфейс ввода скорости взлета: пользователь может задать новый модуль скорости
     """
     current_speed = np.sqrt(x_dot ** 2 + y_dot ** 2 + z_dot ** 2)
-    print(f"\nТекущий модуль скорости спутника: {current_speed:.6f} км/с")
-    user_input = input("Введите новый модуль скорости (км/с) или нажмите Enter, чтобы оставить текущий: ").strip()
+    print(f"\nТекущий модуль скорости запуска: {current_speed:.6f} км/с")
+    user_input = input("Введите скорость взлета спутника (км/с) или нажмите Enter, чтобы оставить текущее значение: ").strip()
 
     if not user_input:
         return x_dot, y_dot, z_dot, current_speed
@@ -806,14 +818,14 @@ def plot_spatial_orbit_with_animation(params, x, y, z, x_dot, y_dot, z_dot):
 
 # Основная программа
 if __name__ == "__main__":
-    # Интерфейс изменения скорости спутника
+    # Интерфейс изменения скорости взлета спутника
     x_dot, y_dot, z_dot, selected_speed = get_velocity_with_user_speed(x_dot, y_dot, z_dot)
 
-    # Локальные 1-я и 2-я космические скорости на текущем радиусе
-    r_current = np.sqrt(x ** 2 + y ** 2 + z ** 2)
-    first_cosmic = np.sqrt(mu / r_current)
-    second_cosmic = np.sqrt(2 * mu / r_current)
+    # Фиксированные 1-я и 2-я космические скорости (км/с)
+    first_cosmic = 7.9
+    second_cosmic = 11.2
     trajectory_type = get_speed_classification(selected_speed, first_cosmic, second_cosmic)
+    flight_direction = get_flight_direction(x_dot, y_dot, z_dot) if selected_speed >= second_cosmic else None
 
     # Расчет параметров орбиты
     params = calculate_orbit_parameters(x, y, z, x_dot, y_dot, z_dot, mu)  # Вызов функции расчета
@@ -826,10 +838,12 @@ if __name__ == "__main__":
     print("\n1. ИСХОДНЫЕ ДАННЫЕ:")  # Раздел 1
     print(f"   Координаты: r = ({x}, {y}, {z}) км")  # Координаты
     print(f"   Скорости: r' = ({x_dot}, {y_dot}, {z_dot}) км/с")  # Скорости
-    print(f"   Модуль скорости |v| = {selected_speed:.6f} км/с")  # Модуль скорости
+    print(f"   Скорость взлета |v| = {selected_speed:.6f} км/с")  # Скорость взлета
     print(f"   1-я космическая v1 = {first_cosmic:.6f} км/с")  # Первая космическая
     print(f"   2-я космическая v2 = {second_cosmic:.6f} км/с")  # Вторая космическая
     print(f"   Тип траектории: {trajectory_type}")  # Классификация траектории
+    if flight_direction:
+        print(f"   {flight_direction}")  # Направление полета при скорости >= 2-й космической
     print(f"   Время t₀ = {t0:.4f} ч")  # Время
 
     print("\n2. ПЕРВЫЕ ИНТЕГРАЛЫ И КОНСТАНТЫ:")  # Раздел 2
