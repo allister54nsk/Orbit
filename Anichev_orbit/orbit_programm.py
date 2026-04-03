@@ -1,7 +1,24 @@
+import os
 import numpy as np  # Импорт библиотеки NumPy для работы с массивами и математическими функциями
-import matplotlib.pyplot as plt  # Импорт библиотеки Matplotlib для построения графиков
-from mpl_toolkits.mplot3d import Axes3D  # Импорт модуля для 3D графиков
-from matplotlib.animation import FuncAnimation  # Импорт модуля для создания анимаций
+
+try:
+    import matplotlib.pyplot as plt  # Импорт библиотеки Matplotlib для построения графиков
+    from mpl_toolkits.mplot3d import Axes3D  # Импорт модуля для 3D графиков
+    from matplotlib.animation import FuncAnimation  # Импорт модуля для создания анимаций
+    MATPLOTLIB_AVAILABLE = True
+except Exception:
+    plt = None
+    Axes3D = None
+    FuncAnimation = None
+    MATPLOTLIB_AVAILABLE = False
+
+try:
+    from vispy import app, scene
+    VISPY_AVAILABLE = True
+except Exception:
+    app = None
+    scene = None
+    VISPY_AVAILABLE = False
 
 # Исходные данные моего варианта
 mu = 398600.5  # Гравитационный параметр Земли в км³/с²
@@ -165,6 +182,61 @@ def calculate_orbit_parameters(x, y, z, x_dot, y_dot, z_dot, mu):
             'a_check': -mu / h_energy  # Альтернативный расчет большой полуоси
         }
     }
+
+
+def select_render_backend():
+    """
+    Выбор backend отрисовки:
+    - auto: VisPy (GPU) при наличии, иначе Matplotlib (CPU)
+    - vispy/gpu: принудительно VisPy
+    - matplotlib/cpu: принудительно Matplotlib
+    """
+    requested = os.getenv("ORBIT_RENDER_BACKEND", "auto").strip().lower()
+
+    if requested in {"vispy", "gpu"}:
+        if VISPY_AVAILABLE:
+            return "vispy"
+        print("VisPy недоступен, используется Matplotlib.")
+        return "matplotlib"
+
+    if requested in {"matplotlib", "cpu"}:
+        return "matplotlib"
+
+    if VISPY_AVAILABLE:
+        return "vispy"
+    return "matplotlib"
+
+
+def get_orbit_points_3d(params, points_count=2048):
+    """
+    Генерация точек орбиты в 3D для рендеринга
+    """
+    a, e = params['a'], params['e']
+    Omega_rad = np.radians(params['Omega'])
+    i_rad = np.radians(params['i'])
+    w_rad = np.radians(params['w'])
+
+    rotation_matrix = np.array([
+        [np.cos(w_rad) * np.cos(Omega_rad) - np.sin(w_rad) * np.cos(i_rad) * np.sin(Omega_rad),
+         -np.sin(w_rad) * np.cos(Omega_rad) - np.cos(w_rad) * np.cos(i_rad) * np.sin(Omega_rad),
+         np.sin(i_rad) * np.sin(Omega_rad)],
+        [np.cos(w_rad) * np.sin(Omega_rad) + np.sin(w_rad) * np.cos(i_rad) * np.cos(Omega_rad),
+         -np.sin(w_rad) * np.sin(Omega_rad) + np.cos(w_rad) * np.cos(i_rad) * np.cos(Omega_rad),
+         -np.sin(i_rad) * np.cos(Omega_rad)],
+        [np.sin(w_rad) * np.sin(i_rad),
+         np.cos(w_rad) * np.sin(i_rad),
+         np.cos(i_rad)]
+    ])
+
+    theta_full = np.linspace(0, 2 * np.pi, points_count)
+    r_full = a * (1 - e ** 2) / (1 + e * np.cos(theta_full))
+    x_orb_plane = r_full * np.cos(theta_full)
+    y_orb_plane = r_full * np.sin(theta_full)
+    z_orb_plane = np.zeros_like(x_orb_plane)
+
+    orbit_points = np.vstack([x_orb_plane, y_orb_plane, z_orb_plane])
+    orbit_3d = (rotation_matrix @ orbit_points).T
+    return orbit_3d
 
 
 def plot_flat_orbit(params):
@@ -419,6 +491,62 @@ def plot_flat_orbit(params):
     anim = FuncAnimation(fig, animate, frames=len(theta_full), interval=50, blit=True, repeat=True)  # Анимация с 50 мс между кадрами
 
     return fig, ax, anim  # Возврат фигуры, осей и анимации
+
+
+def plot_spatial_orbit_gpu(params):
+    """
+    Быстрая 3D отрисовка орбиты на GPU с использованием VisPy/OpenGL
+    """
+    if not VISPY_AVAILABLE:
+        raise RuntimeError("VisPy не установлен: GPU-отрисовка недоступна.")
+
+    orbit_3d = get_orbit_points_3d(params, points_count=4096)
+    max_range = float(np.max(np.abs(orbit_3d)) * 1.25)
+    earth_radius = 6371.0
+
+    canvas = scene.SceneCanvas(keys='interactive', size=(1600, 1000), bgcolor='#04070f', show=True)
+    view = canvas.central_widget.add_view()
+    view.camera = scene.cameras.TurntableCamera(fov=45, azimuth=45, elevation=25, distance=max(max_range * 2.2, 25000))
+
+    scene.visuals.XYZAxis(parent=view.scene)
+    scene.visuals.Sphere(radius=earth_radius, rows=48, cols=96,
+                         color=(0.15, 0.35, 1.0, 0.35), edge_color=None, parent=view.scene)
+    scene.visuals.Line(pos=orbit_3d, color=(0.25, 0.75, 1.0, 1.0), width=2.0, parent=view.scene, method='gl')
+
+    trail = scene.visuals.Line(pos=orbit_3d[:1], color=(1.0, 0.35, 0.35, 0.9), width=2.5, parent=view.scene, method='gl')
+    satellite = scene.visuals.Markers(parent=view.scene)
+    satellite.set_data(orbit_3d[:1], face_color=(1.0, 0.1, 1.0, 1.0), size=12)
+
+    direction_len = max_range * 0.06
+    velocity_line = scene.visuals.Line(
+        pos=np.array([orbit_3d[0], orbit_3d[0] + np.array([direction_len, 0.0, 0.0])]),
+        color=(1.0, 0.2, 0.2, 1.0),
+        width=3.0,
+        parent=view.scene,
+        method='gl'
+    )
+
+    frame_idx = {'value': 0}
+
+    def on_timer(event):
+        idx = frame_idx['value']
+        next_idx = (idx + 1) % len(orbit_3d)
+
+        current = orbit_3d[idx]
+        nxt = orbit_3d[next_idx]
+        direction = nxt - current
+        norm = np.linalg.norm(direction)
+        if norm > EPSILON:
+            direction = direction / norm * direction_len
+
+        satellite.set_data(np.array([current]), face_color=(1.0, 0.1, 1.0, 1.0), size=12)
+        trail.set_data(orbit_3d[:idx + 1])
+        velocity_line.set_data(np.array([current, current + direction]))
+        frame_idx['value'] = next_idx
+
+    timer = app.Timer(interval=1 / 120, connect=on_timer, start=True)
+    timer.start()
+    app.run()
 
 
 def plot_spatial_orbit_with_animation(params, x, y, z, x_dot, y_dot, z_dot):
@@ -891,11 +1019,20 @@ if __name__ == "__main__":
     print(f"   -μ/h = {params['control']['a_check']:.4f}")  # Альтернативный расчет большой полуоси
 
     # Построение графиков
-    print("\nСтроится плоский чертеж орбиты с анимацией...")  # Сообщение
-    fig_flat, ax_flat, anim_flat = plot_flat_orbit(params)  # Построение 2D графика
+    backend = select_render_backend()
+    print(f"\nВыбран backend отрисовки: {backend}")
 
-    print("Строится пространственный чертеж орбиты с анимацией...")  # Сообщение
-    fig_spatial, ax_spatial, anim_spatial = plot_spatial_orbit_with_animation(params, x, y, z, x_dot, y_dot, z_dot)  # Построение 3D графика
+    if backend == "vispy":
+        print("Запуск GPU-отрисовки (VisPy/OpenGL)...")
+        plot_spatial_orbit_gpu(params)
+    else:
+        if not MATPLOTLIB_AVAILABLE:
+            raise RuntimeError("Matplotlib недоступен. Установите matplotlib или используйте VisPy.")
+        print("\nСтроится плоский чертеж орбиты с анимацией...")  # Сообщение
+        fig_flat, ax_flat, anim_flat = plot_flat_orbit(params)  # Построение 2D графика
 
-    plt.tight_layout()  # Автоматическая регулировка расположения элементов
-    plt.show()  # Отображение графиков
+        print("Строится пространственный чертеж орбиты с анимацией...")  # Сообщение
+        fig_spatial, ax_spatial, anim_spatial = plot_spatial_orbit_with_animation(params, x, y, z, x_dot, y_dot, z_dot)  # Построение 3D графика
+
+        plt.tight_layout()  # Автоматическая регулировка расположения элементов
+        plt.show()  # Отображение графиков
