@@ -526,10 +526,11 @@ def plot_spatial_orbit_gpu(params):
         method='gl'
     )
 
-    frame_idx = [0]
+    frame_idx = 0
 
     def on_timer(event):
-        idx = frame_idx[0]
+        nonlocal frame_idx
+        idx = frame_idx
         next_idx = (idx + 1) % len(orbit_3d)
 
         current = orbit_3d[idx]
@@ -542,9 +543,9 @@ def plot_spatial_orbit_gpu(params):
         satellite.set_data(np.array([current]), face_color=(1.0, 0.1, 1.0, 1.0), size=12)
         trail.set_data(orbit_3d[:idx + 1])
         velocity_line.set_data(np.array([current, current + direction]))
-        frame_idx[0] = next_idx
+        frame_idx = next_idx
 
-    timer = app.Timer(interval=1 / 120, connect=on_timer, start=True)
+    canvas.orbit_timer = app.Timer(interval=1 / 120, connect=on_timer, start=True)
     app.run()
 
 
