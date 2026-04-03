@@ -6,6 +6,9 @@ from matplotlib.animation import FuncAnimation  # Импорт модуля дл
 # Исходные данные моего варианта
 mu = 398600.5  # Гравитационный параметр Земли в км³/с²
 t0 = 10 + 29 / 60 + 32.94 / 3600  # Начальное время наблюдения в часах (перевод из часов, минут, секунд в десятичные часы)
+FIRST_COSMIC_VELOCITY = 7.9  # 1-я космическая скорость, км/с
+SECOND_COSMIC_VELOCITY = 11.2  # 2-я космическая скорость, км/с
+EPSILON = 1e-10  # Порог для сравнения с нулем
 
 # Координаты и скорости спутника в заданный момент времени
 x, y, z = 770.42, 4708.93, 6699.08  # Координаты спутника в геоцентрической системе (км)
@@ -28,7 +31,7 @@ def get_flight_direction(x_dot, y_dot, z_dot):
     Направление полета по вектору скорости
     """
     speed = np.sqrt(x_dot ** 2 + y_dot ** 2 + z_dot ** 2)
-    if speed == 0:
+    if abs(speed) < EPSILON:
         return "Направление не определено (нулевая скорость)."
 
     dir_x, dir_y, dir_z = x_dot / speed, y_dot / speed, z_dot / speed
@@ -822,8 +825,8 @@ if __name__ == "__main__":
     x_dot, y_dot, z_dot, selected_speed = get_velocity_with_user_speed(x_dot, y_dot, z_dot)
 
     # Фиксированные 1-я и 2-я космические скорости (км/с)
-    first_cosmic = 7.9
-    second_cosmic = 11.2
+    first_cosmic = FIRST_COSMIC_VELOCITY
+    second_cosmic = SECOND_COSMIC_VELOCITY
     trajectory_type = get_speed_classification(selected_speed, first_cosmic, second_cosmic)
     flight_direction = get_flight_direction(x_dot, y_dot, z_dot) if selected_speed >= second_cosmic else None
 
